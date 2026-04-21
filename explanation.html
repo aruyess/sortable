@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Как работает Sortable — по шагам</title>
+  <style>
+    body {
+      font-family: -apple-system, Segoe UI, Inter, sans-serif;
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1.5rem;
+      line-height: 1.6;
+      color: #1a1a1a;
+      background: #fafafa;
+    }
+    h1 { color: #ff3d68; }
+    h2 {
+      margin-top: 2.5rem;
+      border-bottom: 2px solid #7a5cff;
+      padding-bottom: 0.3rem;
+      color: #7a5cff;
+    }
+    h3 { margin-top: 1.5rem; color: #333; }
+    code {
+      background: #eef;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: Menlo, monospace;
+      font-size: 0.92em;
+    }
+    pre {
+      background: #1f2440;
+      color: #e7e9f5;
+      padding: 1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.88em;
+    }
+    pre code { background: transparent; color: inherit; padding: 0; }
+    .step {
+      background: white;
+      border-left: 4px solid #ff3d68;
+      padding: 0.8rem 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+    .diagram {
+      background: #f0f0f8;
+      padding: 1rem;
+      border-radius: 8px;
+      font-family: Menlo, monospace;
+      white-space: pre;
+      font-size: 0.85em;
+    }
+    table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+    th, td { padding: 0.5rem 0.8rem; border: 1px solid #ddd; text-align: left; }
+    th { background: #eef; }
+    .tag {
+      display: inline-block;
+      background: #7a5cff;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.75em;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>🦹 Sortable — как это работает</h1>
+<p>Разбор проекта «с головы»: что происходит, когда браузер открывает <code>index.html</code>, и как устроен поток данных.</p>
+
+<h2>0. Точка входа — браузер читает HTML</h2>
+
+<p>Браузер загружает <code>index.html</code>, строит DOM (пустую таблицу, toolbar, модалку), затем натыкается на строку:</p>
+<pre><code>&lt;script src="app.js"&gt;&lt;/script&gt;</code></pre>
+<p>Весь JS-файл исполняется сверху вниз: объявляются константы (<code>API</code>, <code>COLUMNS</code>, <code>SEARCH_FIELDS</code>, <code>STRING_OPS</code>, <code>NUMBER_OPS</code>), создаётся объект <code>state</code> со значениями по умолчанию, определяются все функции. В самом конце файла — <strong>вызов <code>init()</code></strong>. Отсюда начинается жизнь приложения.</p>
+
+<h2>1. Функция запуска — <code>init()</code></h2>
+
+<pre><code>const init = async () => {
+  try {
+    loadURL();                                // 1. читаем URL в state
+    const response = await fetch(API);        // 2. тянем JSON
+    const heroes = await response.json();
+    state.all = heroes;                       // 3. сохраняем в state
+    syncControlsFromState();                  // 4. выставляем UI
+    bindEvents();                             // 5. вешаем обработчики
+    applyFilter();                            // 6. фильтр → сорт → рендер
+
+    if (state.heroSlug) {                     // 7. если в URL был hero — открыть
+      const hero = state.all.find((h) =&gt; h.slug === state.heroSlug);
+      if (hero) openDetail(hero);
+    }
+  } catch (err) { /* показываем ошибку в таблице */ }
+};
+
+init();</code></pre>
+
+<p>Разберём каждый из 7 шагов.</p>
+
+<div class="step">
+  <strong>Шаг 1 — <code>loadURL()</code>.</strong>
+  Если пользователь пришёл по ссылке <code>?q=cat&amp;sort=name&amp;dir=desc</code>, мы должны восстановить это состояние до загрузки данных.
+  Функция <code>parseQuery</code> через <code>split("&amp;")</code> + <code>reduce</code> превращает query-строку в объект <code>{ q: "cat", sort: "name", dir: "desc" }</code>, а <code>loadURL</code> раскладывает его в <code>state</code>.
+</div>
+
+<div class="step">
+  <strong>Шаг 2 — <code>await fetch(API)</code>.</strong>
+  Запрашиваем <code>all.json</code> с rawcdn.githack.com. <code>fetch</code> возвращает <code>Promise</code>. <code>await</code> приостанавливает функцию (async-функция), пока ответ не пришёл. Затем <code>response.json()</code> парсит JSON — тоже через <code>await</code>.
+</div>
+
+<div class="step">
+  <strong>Шаг 3 — <code>state.all = heroes</code>.</strong>
+  Массив из ~731 героя лежит в памяти. Больше ни одного запроса делать не надо — все операции идут в браузере.
+</div>
+
+<div class="step">
+  <strong>Шаг 4 — <code>syncControlsFromState()</code>.</strong>
+  Выставляет value у input поиска, у селекта размера страницы, и заполняет селекты полей/операторов через <code>populateFieldSelect</code> и <code>populateOpSelect</code>.
+</div>
+
+<div class="step">
+  <strong>Шаг 5 — <code>bindEvents()</code>.</strong>
+  Один раз навешивает слушатели на search, searchField, searchOp, pageSize, prev, next, closeDetail и backdrop модалки. Каждое событие обновляет <code>state</code> и вызывает <code>applyFilter()</code> или <code>render()</code>.
+</div>
+
+<div class="step">
+  <strong>Шаг 6 — <code>applyFilter()</code>.</strong>
+  Это ядро приложения (см. раздел ниже).
+</div>
+
+<div class="step">
+  <strong>Шаг 7 — автооткрытие детали.</strong>
+  Если в URL был <code>?hero=batman</code>, ищем героя по slug и открываем модалку.
+</div>
+
+<h2>2. Главный конвейер — event → state → filter → sort → render → URL</h2>
+
+<p>Любое изменение (ввод в поиск, клик по заголовку, смена страницы) идёт по одному пути:</p>
+
+<div class="diagram">событие
+  │
+  ▼
+обновляется state
+  │
+  ▼
+applyFilter()   ──► state.filtered = state.all.filter(makeMatcher(...))
+  │
+  ▼
+applySort()     ──► state.filtered.sort(makeCompare(...))
+  │
+  ▼
+render()        ──► renderHead() + renderBody() + renderPager()
+  │
+  ▼
+syncURL()       ──► history.replaceState(...)</div>
+
+<p>Такая архитектура называется <em>unidirectional data flow</em> — данные текут в одну сторону, и UI всегда отражает <code>state</code>.</p>
+
+<h2>3. Фильтрация — <code>makeMatcher</code></h2>
+
+<p>Это функция-фабрика (замыкание). Она принимает выбранное поле, оператор и строку запроса, а возвращает <strong>предикат</strong> <code>(hero) =&gt; bool</code>, который потом передаётся в <code>.filter</code>.</p>
+
+<pre><code>const makeMatcher = (field, op, rawQuery) =&gt; {
+  const q = rawQuery.trim();
+  if (!q) return () =&gt; true;                 // пустой запрос = всё пропускаем
+
+  if (field.type === "string") {
+    const needle = q.toLowerCase();
+    return (hero) =&gt; {
+      const val = String(getPath(hero, field.key)).toLowerCase();
+      if (op === "include") return val.includes(needle);
+      if (op === "exclude") return !val.includes(needle);
+      if (op === "equal")   return val === needle;
+      if (op === "fuzzy")   return fuzzyMatch(val, needle);
+    };
+  }
+  // для чисел: парсим "78 kg" в 78 и сравниваем =, ≠, &gt;, &lt;
+};</code></pre>
+
+<p><strong>Fuzzy-поиск</strong> — символы needle встречаются в haystack в том же порядке, но необязательно подряд. «btm» находит «Batman».</p>
+
+<h2>4. Сортировка — <code>makeCompare</code></h2>
+
+<p>Тоже фабрика-замыкание. Возвращает компаратор для <code>Array.prototype.sort</code>.</p>
+
+<pre><code>const makeCompare = (key, dir, type) =&gt; {
+  const mult = dir === "asc" ? 1 : -1;
+  return (a, b) =&gt; {
+    let va = getPath(a, key);
+    let vb = getPath(b, key);
+
+    if (type === "measure") {                  // "78 kg" → 78
+      va = parseNumber(normalizeMeasure(va));
+      vb = parseNumber(normalizeMeasure(vb));
+    }
+
+    // пропуски всегда в конец, независимо от направления
+    if (va === null) return 1;
+    if (vb === null) return -1;
+
+    if (va &lt; vb) return -1 * mult;
+    if (va &gt; vb) return  1 * mult;
+    return 0;
+  };
+};</code></pre>
+
+<p>Ключевая деталь: <strong>missing-значения всегда идут в конец</strong>. Для этого мы возвращаем <code>1</code> / <code>-1</code> для <code>null</code> БЕЗ умножения на <code>mult</code>.</p>
+
+<h2>5. Рендер — три функции</h2>
+
+<table>
+  <tr><th>Функция</th><th>Что делает</th></tr>
+  <tr>
+    <td><code>renderHead()</code></td>
+    <td>Рисует <code>&lt;th&gt;</code> для каждой колонки. Если колонка <code>sortable</code> — вешает <code>click → onSort</code> и, если это текущая сортировка, показывает стрелку ▲/▼.</td>
+  </tr>
+  <tr>
+    <td><code>renderBody()</code></td>
+    <td>Берёт <em>только текущую страницу</em> через <code>slice(start, start+size)</code>. Для каждого героя создаёт <code>&lt;tr&gt;</code> с кликом по карточке, внутри — <code>&lt;td&gt;</code> с картинкой / числом / строкой.</td>
+  </tr>
+  <tr>
+    <td><code>renderPager()</code></td>
+    <td>Обновляет текст «Page N of M», включает/выключает кнопки Prev/Next, пишет счётчик найденных героев.</td>
+  </tr>
+</table>
+
+<p><strong>Почему это быстро:</strong> мы не рисуем все 731 строку в DOM. На странице максимум 100 строк (или <code>All</code>). При поиске мы фильтруем массив в памяти и перерисовываем только tbody.</p>
+
+<h2>6. URL-синхронизация</h2>
+
+<p>Каждый <code>render()</code> в конце зовёт <code>syncURL()</code>. Та собирает значения из state, которые <em>отличаются от дефолтов</em>, и пишет в URL через <code>history.replaceState</code>:</p>
+
+<pre><code>/?q=300&amp;field=appearance.weight&amp;op=gt&amp;sort=powerstats.strength&amp;dir=desc</code></pre>
+
+<p>На входе <code>parseQuery</code> разбирает query-строку обратно через <code>.split("&amp;").reduce(...)</code> — обходимся без <code>URLSearchParams</code>. Это нужно для <strong>Piscine-совместимости</strong>: используем только пройденные приёмы (split, reduce, String).</p>
+
+<h2>7. Детальный просмотр — <code>openDetail(hero)</code></h2>
+
+<p>При клике по строке таблицы:</p>
+<ol>
+  <li>сохраняем <code>hero.slug</code> в <code>state.heroSlug</code> → попадает в URL;</li>
+  <li>в <code>#detailBody</code> рисуем большую картинку <code>hero.images.lg</code>, имя, полное имя и список всех полей;</li>
+  <li>добавляем класс <code>open</code> на <code>#detail</code> — CSS показывает модалку с backdrop.</li>
+</ol>
+
+<p>Закрытие — по крестику или клику на backdrop. При этом <code>heroSlug</code> стирается, URL обновляется.</p>
+
+<h2>8. Как это соотносится с темами Piscine-JS</h2>
+
+<table>
+  <tr><th>Приём в коде</th><th>Тема</th></tr>
+  <tr><td><code>const</code>, стрелочные функции, тернарники</td><td>Примитивы / операторы</td></tr>
+  <tr><td><code>.split</code>, <code>.includes</code>, <code>.slice</code>, <code>.toLowerCase</code></td><td>Строки</td></tr>
+  <tr><td><code>.forEach</code> для DOM</td><td>Массивы и итерация</td></tr>
+  <tr><td><code>.filter</code>, <code>.sort</code>, <code>.find</code>, <code>.reduce</code>, <code>.map</code></td><td>HOF</td></tr>
+  <tr><td><code>hero.biography.fullName</code>, <code>Object.keys</code></td><td>Объекты</td></tr>
+  <tr><td><code>/-?\d+(\.\d+)?/</code> в <code>parseNumber</code></td><td>Regex</td></tr>
+  <tr><td><code>makeCompare(...)</code>, <code>makeMatcher(...)</code> — функция возвращает функцию</td><td>ФП (замыкания, каррирование)</td></tr>
+  <tr><td><code>getPath</code> через <code>reduce</code> по массиву ключей</td><td>Рекурсия / глубокие структуры</td></tr>
+  <tr><td><code>querySelector</code>, <code>createElement</code>, <code>classList</code></td><td>DOM</td></tr>
+  <tr><td><code>addEventListener("input" / "change" / "click")</code></td><td>DOM-события</td></tr>
+  <tr><td><code>async init()</code> + <code>await fetch(...)</code></td><td>Async function</td></tr>
+</table>
+
+<h2>Коротко — одним абзацем</h2>
+
+<p>Браузер читает <code>index.html</code>, подключает <code>app.js</code>, внизу файла стартует <code>init()</code>. Она: читает URL → <code>fetch</code> JSON → настраивает UI → вешает события → запускает конвейер <em>filter → sort → render → URL</em>. Дальше любое действие пользователя обновляет <code>state</code> и прогоняет тот же конвейер заново. Никаких фреймворков, никакого лишнего перерендера — только текущая страница.</p>
+
+</body>
+</html>

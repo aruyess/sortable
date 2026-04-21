@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sortable · Superhero Database</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>🦹 Villain's Intel Desk</h1>
+    <p class="tagline">Confidential dossiers on every caped annoyance.</p>
+  </header>
+
+  <section class="toolbar">
+    <div class="search-group">
+      <select id="searchField" title="Search field"></select>
+      <select id="searchOp" title="Operator"></select>
+      <input id="search" type="search" placeholder="Search…" autocomplete="off" />
+    </div>
+    <label class="page-size">
+      Page size:
+      <select id="pageSize">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+    <span id="counter" class="counter"></span>
+  </section>
+
+  <div class="table-wrap">
+    <table id="heroes">
+      <thead>
+        <tr id="headRow"></tr>
+      </thead>
+      <tbody id="body"></tbody>
+    </table>
+  </div>
+
+  <nav class="pager">
+    <button id="prev">‹ Prev</button>
+    <span id="pageInfo"></span>
+    <button id="next">Next ›</button>
+  </nav>
+
+  <div id="detail" class="modal">
+    <div class="modal-card">
+      <button id="closeDetail" class="close">✕</button>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
