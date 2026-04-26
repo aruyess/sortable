@@ -119,6 +119,6 @@ const state = {
 
 ## ✍️ Авторы
 
-- Автор1
-- Автор2
-- Автор3
+- Aniyar Baibossyn
+- Aru Yessergepova
+- Daniyar Kenzhegulov

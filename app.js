@@ -1,7 +1,7 @@
 const API = "https://rawcdn.githack.com/akabab/superhero-api/0.2.0/api/all.json";
 
 const COLUMNS = [
-  { key: "images.xs",               label: "Icon",        sortable: true,  type: "image" },
+  { key: "images.xs",               label: "Icon",        sortable: false, type: "image" },
   { key: "name",                    label: "Name",        sortable: true,  type: "string" },
   { key: "biography.fullName",      label: "Full Name",   sortable: true,  type: "string" },
   { key: "powerstats.intelligence", label: "INT",         sortable: true,  type: "number" },
@@ -67,7 +67,7 @@ const state = {
 const getPath = (obj, path) =>
   path.split(".").reduce((acc, key) => (acc == null ? acc : acc[key]), obj);
 
-const isMissing = (v) => v == null || v === "" || v === "-" || v === "null";
+const isMissing = (v) => v == null || v === "" || v === "-";
 
 // Извлекаем первое число из строки regexp-ом: "78 kg" -> 78.
 const parseNumber = (v) => {
@@ -118,7 +118,7 @@ const makeMatcher = (field, op, rawQuery) => {
     const raw = getPath(hero, field.key);
     const numVal = field.type === "measure"
       ? parseNumber(normalizeMeasure(raw))
-      : (typeof raw === "number" && raw >= 0 ? raw : null);
+      : (typeof raw === "number" ? raw : null);
     if (numVal === null) return false;
     if (op === "eq")  return numVal === numQ;
     if (op === "neq") return numVal !== numQ;
@@ -139,8 +139,8 @@ const makeCompare = (key, dir, type) => {
       va = parseNumber(normalizeMeasure(va));
       vb = parseNumber(normalizeMeasure(vb));
     } else if (type === "number") {
-      va = typeof va === "number" && va >= 0 ? va : null;
-      vb = typeof vb === "number" && vb >= 0 ? vb : null;
+      va = typeof va === "number" ? va : null;
+      vb = typeof vb === "number" ? vb : null;
     } else {
       va = isMissing(va) ? null : String(va).toLowerCase();
       vb = isMissing(vb) ? null : String(vb).toLowerCase();
@@ -179,7 +179,7 @@ const parseQuery = (search) => {
 // Пишем в URL только изменённые относительно defaults поля.
 const syncURL = () => {
   const params = {};
-  if (state.query)                params.q = state.query;
+  if (state.query.trim())         params.q = state.query;
   if (state.field !== "name")     params.field = state.field;
   if (state.op !== "include")     params.op = state.op;
   if (state.sortKey !== "name")   params.sort = state.sortKey;
@@ -215,6 +215,10 @@ const renderHead = () => {
 
     if (col.sortable) {
       th.style.cursor = "pointer";
+      th.setAttribute("aria-sort",
+        state.sortKey === col.key
+          ? (state.sortDir === "asc" ? "ascending" : "descending")
+          : "none");
       if (state.sortKey === col.key) {
         const arrow = document.createElement("span");
         arrow.className = "arrow";
@@ -397,13 +401,17 @@ const openDetail = (hero) => {
   });
   body.appendChild(dl);
 
-  document.querySelector("#detail").classList.add("open");
+  const modal = document.querySelector("#detail");
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
   syncURL();
 };
 
 const closeDetail = () => {
   state.heroSlug = null;
-  document.querySelector("#detail").classList.remove("open");
+  const modal = document.querySelector("#detail");
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
   syncURL();
 };
 
@@ -448,6 +456,10 @@ const bindEvents = () => {
   document.querySelector("#detail").addEventListener("click", (e) => {
     if (e.target.id === "detail") closeDetail();
   });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.heroSlug) closeDetail();
+  });
 };
 
 const syncControlsFromState = () => {
@@ -462,6 +474,7 @@ const init = async () => {
   try {
     loadURL();
     const response = await fetch(API);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const heroes = await response.json();
     state.all = heroes;
     syncControlsFromState();
